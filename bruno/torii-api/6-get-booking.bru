@@ -1,0 +1,15 @@
+meta {
+  name: 6 - Get Booking
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/bookings/{{bookingId}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}

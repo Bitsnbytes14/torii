@@ -1,0 +1,26 @@
+meta {
+  name: 3 - Get Dev Token
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/auth/dev-token
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "holder": "bruno-tester"
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  bru.setVar("devToken", res.body.token);
+  bru.setVar("holder", "bruno-tester");
+}

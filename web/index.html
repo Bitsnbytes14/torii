@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Torii — Event Booking</title>
+<style>
+  :root {
+    --accent: #2f6f4f;
+    --ink: #1f2328;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --bg: #ffffff;
+    --bg-soft: #fafafa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.5;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+  }
+  header {
+    margin-bottom: 40px;
+  }
+  header h1 {
+    font-size: 28px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  header p {
+    color: var(--muted);
+    margin: 0;
+    font-size: 15px;
+  }
+  section {
+    margin-bottom: 48px;
+  }
+  h2 {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-weight: 600;
+    margin: 0 0 16px;
+  }
+  #events-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    background: var(--bg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .card .meta {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 10px;
+  }
+  .seats {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #eef6f0;
+    color: var(--accent);
+  }
+  .seats.sold-out {
+    background: #fbeaea;
+    color: #b3261e;
+  }
+  .panel {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    background: var(--bg-soft);
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    margin-top: 16px;
+  }
+  label:first-of-type { margin-top: 0; }
+  input, select {
+    width: 100%;
+    padding: 9px 11px;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: inherit;
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  button {
+    margin-top: 20px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: 7px;
+    background: var(--accent);
+    color: white;
+    cursor: pointer;
+  }
+  button:hover { opacity: 0.92; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 7px;
+    font-size: 14px;
+    display: none;
+  }
+  .status.show { display: block; }
+  .status.success {
+    background: #eef6f0;
+    color: #1e5233;
+    border: 1px solid #cfe8d8;
+  }
+  .status.error {
+    background: #fbeaea;
+    color: #8c1d15;
+    border: 1px solid #f2c9c5;
+  }
+  #my-bookings-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  #my-bookings-list li {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    display: flex;
+    justify-content: space-between;
+  }
+  #my-bookings-list li:last-child { border-bottom: none; }
+  .badge {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .empty {
+    color: var(--muted);
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Torii</h1>
+      <p>Demo booking board — pick an event, reserve seats, watch it sell out.</p>
+    </header>
+
+    <section>
+      <h2>Events</h2>
+      <div id="events-grid"></div>
+    </section>
+
+    <section>
+      <h2>Book seats</h2>
+      <div class="panel">
+        <form id="booking-form">
+          <label for="holder">Your name</label>
+          <input id="holder" type="text" placeholder="e.g. Ada Lovelace" required />
+
+          <label for="event-select">Event</label>
+          <select id="event-select" required></select>
+
+          <label for="seats">Seats</label>
+          <input id="seats" type="number" min="1" value="1" required />
+
+          <button type="submit" id="book-btn">Book</button>
+          <div id="book-status" class="status"></div>
+        </form>
+      </div>
+    </section>
+
+    <section>
+      <h2>My bookings</h2>
+      <ul id="my-bookings-list"></ul>
+      <p id="my-bookings-empty" class="empty">Enter your name above and book something — your reservations will show up here.</p>
+    </section>
+  </div>
+
+  <script>
+    const API = "/api";
+    let events = [];
+    let lastHolder = "";
+
+    async function fetchEvents() {
+      const res = await fetch(`${API}/events`);
+      events = await res.json();
+      renderEvents();
+      renderEventSelect();
+    }
+
+    function formatDate(iso) {
+      const d = new Date(iso);
+      return d.toLocaleString(undefined, {
+        month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+      });
+    }
+
+    function renderEvents() {
+      const grid = document.getElementById("events-grid");
+      grid.innerHTML = "";
+      if (events.length === 0) {
+        grid.innerHTML = '<p class="empty">No events yet.</p>';
+        return;
+      }
+      for (const e of events) {
+        const soldOut = e.available_seats <= 0;
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <h3>${escapeHtml(e.name)}</h3>
+          <div class="meta">${formatDate(e.starts_at)}</div>
+          <span class="seats ${soldOut ? "sold-out" : ""}">
+            ${soldOut ? "Sold out" : `${e.available_seats} / ${e.total_seats} seats left`}
+          </span>
+        `;
+        grid.appendChild(card);
+      }
+    }
+
+    function renderEventSelect() {
+      const select = document.getElementById("event-select");
+      select.innerHTML = "";
+      for (const e of events) {
+        const opt = document.createElement("option");
+        opt.value = e.id;
+        const soldOut = e.available_seats <= 0;
+        opt.textContent = `${e.name}${soldOut ? " (sold out)" : ` — ${e.available_seats} left`}`;
+        select.appendChild(opt);
+      }
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement("div");
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function showStatus(message, kind) {
+      const el = document.getElementById("book-status");
+      el.textContent = message;
+      el.className = `status show ${kind}`;
+    }
+
+    async function fetchMyBookings(holder) {
+      const list = document.getElementById("my-bookings-list");
+      const empty = document.getElementById("my-bookings-empty");
+      if (!holder) {
+        list.innerHTML = "";
+        empty.style.display = "block";
+        return;
+      }
+      const res = await fetch(`${API}/bookings?holder=${encodeURIComponent(holder)}`);
+      const bookings = await res.json();
+      if (!bookings || bookings.length === 0) {
+        list.innerHTML = "";
+        empty.style.display = "block";
+        return;
+      }
+      empty.style.display = "none";
+      list.innerHTML = bookings.map((b) => {
+        const event = events.find((e) => e.id === b.event_id);
+        const name = event ? event.name : b.event_id;
+        return `<li><span>${escapeHtml(name)} — ${b.seats} seat(s)</span><span class="badge">${b.status}</span></li>`;
+      }).join("");
+    }
+
+    document.getElementById("booking-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const holder = document.getElementById("holder").value.trim();
+      const eventId = document.getElementById("event-select").value;
+      const seats = parseInt(document.getElementById("seats").value, 10);
+      const btn = document.getElementById("book-btn");
+
+      if (!holder || !eventId || !seats) return;
+
+      btn.disabled = true;
+      try {
+        const tokenRes = await fetch(`${API.replace("/api", "")}/auth/dev-token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ holder }),
+        });
+        if (!tokenRes.ok) throw new Error("failed to get token");
+        const { token } = await tokenRes.json();
+
+        const bookingRes = await fetch(`${API}/bookings`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ event_id: eventId, holder, seats }),
+        });
+
+        if (bookingRes.status === 409) {
+          const body = await bookingRes.json();
+          showStatus(`Sold out — ${body.error}`, "error");
+        } else if (!bookingRes.ok) {
+          const body = await bookingRes.json().catch(() => ({}));
+          showStatus(body.error || "Booking failed", "error");
+        } else {
+          showStatus("Booked! See it below in My bookings.", "success");
+          lastHolder = holder;
+          await fetchEvents();
+          await fetchMyBookings(holder);
+        }
+      } catch (err) {
+        showStatus("Something went wrong reaching the server.", "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("holder").addEventListener("change", (ev) => {
+      fetchMyBookings(ev.target.value.trim());
+    });
+
+    fetchEvents();
+  </script>
+</body>
+</html>

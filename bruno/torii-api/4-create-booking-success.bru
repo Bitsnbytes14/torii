@@ -1,0 +1,31 @@
+meta {
+  name: 4 - Create Booking (Success)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/bookings
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{devToken}}
+}
+
+body:json {
+  {
+    "event_id": "{{eventId}}",
+    "holder": "{{holder}}",
+    "seats": 1
+  }
+}
+
+assert {
+  res.status: eq 201
+}
+
+script:post-response {
+  bru.setVar("bookingId", res.body.id);
+}

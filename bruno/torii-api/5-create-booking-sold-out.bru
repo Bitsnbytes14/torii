@@ -1,0 +1,32 @@
+meta {
+  name: 5 - Create Booking (Sold Out)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/bookings
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{devToken}}
+}
+
+body:json {
+  {
+    "event_id": "{{eventId}}",
+    "holder": "{{holder}}",
+    "seats": 1
+  }
+}
+
+docs {
+  Run after "4 - Create Booking (Success)" — that request already took the
+  demo event's single seat, so this one should come back 409 Conflict.
+}
+
+assert {
+  res.status: eq 409
+}
