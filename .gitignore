@@ -2,3 +2,16 @@
 *.exe
 *.test
 .env
+
+# Terraform: state holds resource IDs and can hold secrets; tfvars holds
+# your IP and email. The provider lock file IS committed.
+.terraform/
+*.tfstate*
+# saved plans embed variable values and can contain secrets
+*tfplan*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# kubeconfig fetched from the node
+*kubeconfig*.yaml

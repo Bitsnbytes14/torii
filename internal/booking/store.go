@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,12 +29,29 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
+// migrateLockID is an arbitrary constant; it only has to be the same for
+// every booking replica and unused by anything else in the database.
+const migrateLockID = 7_104_202_600
+
 // Migrate applies the schema. It's idempotent (CREATE TABLE IF NOT EXISTS),
-// which is enough for this phase — a real migration tool comes later if the
-// schema outgrows a single file.
+// which is enough for now — a real migration tool comes later if the schema
+// outgrows a single file. IF NOT EXISTS is not concurrency-safe, though, so
+// replicas starting together take a transaction-scoped advisory lock and
+// apply the schema one at a time.
 func (s *Store) Migrate(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, schema)
-	return err
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", migrateLockID); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	if _, err := tx.Exec(ctx, schema); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) CreateEvent(ctx context.Context, name string, startsAt time.Time, totalSeats int) (Event, error) {

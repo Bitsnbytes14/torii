@@ -1,0 +1,87 @@
+# Storage: k3s's bundled local-path provisioner backs this PVC with a hostPath
+# directory on the node (/var/lib/rancher/k3s/storage). That only works
+# because there is exactly one node. The data lives and dies with that EC2
+# instance's root volume: it does NOT survive node replacement, and a pod
+# rescheduled onto another node would come up empty. A multi-node cluster
+# needs a network-attached StorageClass (EBS CSI driver) instead.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: torii
+spec:
+  storageClassName: local-path
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: torii
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: a rolling update briefly runs the new pod
+  # alongside the old one, and two Postgres processes on one data directory
+  # corrupt it.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          # Sized for a 1 GiB node: the defaults (128MB shared_buffers, 100
+          # connections) assume a machine to itself.
+          args: ["-c", "shared_buffers=32MB", "-c", "max_connections=40"]
+          env:
+            - name: POSTGRES_USER
+              value: torii
+            - name: POSTGRES_DB
+              value: torii
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: torii-secrets
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "torii", "-d", "torii"]
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: torii
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

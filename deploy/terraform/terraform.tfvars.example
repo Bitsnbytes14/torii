@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+
+# Your public IP as a /32, e.g. from `curl -s https://checkip.amazonaws.com`.
+ssh_allowed_cidr = "203.0.113.7/32"
+
+# Contents of the .pub file from `ssh-keygen -t ed25519 -f ~/.ssh/torii`.
+ssh_public_key = "ssh-ed25519 AAAA... you@laptop"
+
+budget_alert_email = "you@example.com"
+
+# region            = "ap-south-1"
+# root_volume_size_gb = 16

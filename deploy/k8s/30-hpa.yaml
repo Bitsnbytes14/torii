@@ -1,0 +1,47 @@
+# Needs metrics-server, which k3s bundles in kube-system; without it the HPA
+# shows <unknown> targets and never scales. Check with
+# `kubectl -n kube-system get deploy metrics-server` and `kubectl top pods -n torii`.
+#
+# Ceilings are low on purpose. On one t3.micro, more pods share the same two
+# vCPUs, and with "standard" credits the node throttles to baseline once its
+# credits run out. Scaling out past that adds memory pressure without adding
+# CPU. Here the HPA demonstrates the mechanism; real headroom needs more nodes.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway
+  namespace: torii
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: booking
+  namespace: torii
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: booking
+  minReplicas: 2
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

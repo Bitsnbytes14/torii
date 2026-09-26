@@ -1,0 +1,85 @@
+# Two replicas are safe here because nothing about correctness lives in the
+# process: the double-booking guard is a Postgres row lock (SELECT ... FOR
+# UPDATE), so replicas contend on the database, not in memory. Startup
+# migrations are serialized with a Postgres advisory lock for the same
+# reason.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking
+  namespace: torii
+spec:
+  replicas: 2
+  # maxUnavailable 0: a new version must pass readiness before an old pod is
+  # removed, so a broken image stalls the rollout instead of causing an
+  # outage.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: booking
+  template:
+    metadata:
+      labels:
+        app: booking
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: booking
+          # :main is only the bootstrap tag for the first apply; the deploy
+          # workflow pins each Deployment to an immutable commit-SHA tag.
+          image: ghcr.io/bitsnbytes14/torii-booking:main
+          env:
+            - name: PORT
+              value: "8083"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: torii-secrets
+                  key: DATABASE_URL
+          ports:
+            - containerPort: 8083
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # CPU request is what the HPA's utilization percentage is measured
+          # against. No CPU limit: throttling a latency-sensitive Go service
+          # hurts more than letting it borrow idle CPU on its own node.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking
+  namespace: torii
+spec:
+  selector:
+    app: booking
+  ports:
+    - port: 8083
+      targetPort: 8083

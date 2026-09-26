@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Real Postgres and Redis so the tests that exist to prove locking and
+    # shared rate limits (store_test.go, replicas_test.go) actually run here
+    # instead of skipping or falling back to miniredis.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: torii
+          POSTGRES_PASSWORD: torii
+          POSTGRES_DB: torii
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U torii -d torii"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://torii:torii@localhost:5432/torii?sslmode=disable
+      TEST_REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Unit tests
+        run: go test ./...
+
+      # Separate from the plain run so a failure clearly says "data race"
+      # rather than being mixed in with ordinary test failures.
+      - name: Race detector
+        run: go test -race -count=1 ./...
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/terraform
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      # Plan-time guardrail tests against a mocked AWS provider: no
+      # credentials, nothing created.
+      - run: terraform test
+
+  images:
+    needs: [test, terraform]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service: [booking, controlplane, gateway]
+    steps:
+      - uses: actions/checkout@v7
+
+      # GHCR image names must be lowercase; the owner here is not.
+      - name: Registry path
+        id: registry
+        run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The SHA tag is what gets deployed: immutable, so a deploy always
+      # means exactly one commit. :main only moves along for the very first
+      # `kubectl apply`, before any deploy has pinned a SHA.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          build-args: SERVICE=${{ matrix.service }}
+          push: true
+          tags: |
+            ${{ steps.registry.outputs.prefix }}/torii-${{ matrix.service }}:${{ github.sha }}
+            ${{ steps.registry.outputs.prefix }}/torii-${{ matrix.service }}:main
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}

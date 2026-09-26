@@ -1,0 +1,108 @@
+# Replaces Phase 3's two hardcoded ports: clients hit one Ingress, Traefik
+# forwards to the gateway Service, and the Service spreads requests over
+# however many gateway pods exist (2, or more under the HPA). Correctness
+# still doesn't depend on which pod gets a request, because rate-limit and
+# tenant state live in Redis.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: torii
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: gateway
+          image: ghcr.io/bitsnbytes14/torii-gateway:main
+          env:
+            - name: PORT
+              value: "8080"
+            - name: BOOKING_SERVICE_URL
+              value: http://booking:8083
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: WEB_DIR
+              value: /web
+            - name: TENANT_CACHE_TTL
+              value: 5s
+            # Every replica must share this, or a token minted by one pod is
+            # rejected by the next pod the Service routes to.
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: torii-secrets
+                  key: JWT_SECRET
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: torii
+spec:
+  selector:
+    app: gateway
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# k3s ships Traefik as its ingress controller, exposed on the node's ports
+# 80/443 (which the security group opens). No host rule: the node has no DNS
+# name, only a public IP that changes on stop/start.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway
+  namespace: torii
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 80

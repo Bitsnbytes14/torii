@@ -3,6 +3,7 @@ package booking
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -101,5 +102,64 @@ func TestCreateBooking_NoOverbooking(t *testing.T) {
 	}
 	if final.SeatsBooked > final.TotalSeats {
 		t.Fatalf("OVERBOOKED: seats_booked (%d) exceeds total_seats (%d)", final.SeatsBooked, final.TotalSeats)
+	}
+}
+
+// TestMigrate_ConcurrentReplicas runs Migrate from many connections at once
+// against an empty schema, the way several booking replicas do when they
+// start together. CREATE TABLE IF NOT EXISTS alone is not safe under
+// concurrency: two sessions can both see "missing" and one then fails on a
+// catalog unique constraint.
+func TestMigrate_ConcurrentReplicas(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set; skipping Postgres-backed test")
+	}
+	ctx := context.Background()
+
+	admin, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(admin.Close)
+
+	schemaName := fmt.Sprintf("migrate_test_%d", time.Now().UnixNano())
+	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+schemaName); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	t.Cleanup(func() { _, _ = admin.Exec(ctx, "DROP SCHEMA "+schemaName+" CASCADE") })
+
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = schemaName
+
+	const replicas = 10
+	var wg sync.WaitGroup
+	errs := make(chan error, replicas)
+	start := make(chan struct{})
+	for range replicas {
+		pool, err := pgxpool.NewWithConfig(ctx, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(pool.Close)
+		store := NewStore(pool)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- store.Migrate(ctx)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent Migrate failed: %v", err)
+		}
 	}
 }

@@ -1,0 +1,72 @@
+# ClusterIP only, and deliberately absent from the Ingress: the admin API is
+# reached with `kubectl port-forward`, which already requires cluster
+# credentials. The admin token is a second layer, not the only one.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controlplane
+  namespace: torii
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: controlplane
+  template:
+    metadata:
+      labels:
+        app: controlplane
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: controlplane
+          image: ghcr.io/bitsnbytes14/torii-controlplane:main
+          env:
+            - name: PORT
+              value: "8082"
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: CONTROLPLANE_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: torii-secrets
+                  key: CONTROLPLANE_ADMIN_TOKEN
+          ports:
+            - containerPort: 8082
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: controlplane
+  namespace: torii
+spec:
+  selector:
+    app: controlplane
+  ports:
+    - port: 8082
+      targetPort: 8082
