@@ -10,61 +10,76 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/cors"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/Bitsnbytes14/torii/internal/gateway"
+	"github.com/Bitsnbytes14/torii/internal/startup"
+	"github.com/Bitsnbytes14/torii/internal/tenant"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	port := getEnv("PORT", "8080")
-	bookingServiceURL := getEnv("BOOKING_SERVICE_URL", "http://localhost:8081")
+	bookingServiceURL := getEnv("BOOKING_SERVICE_URL", "http://localhost:8083")
 	webDir := getEnv("WEB_DIR", "./web")
 	jwtSecret := []byte(getEnv("JWT_SECRET", "dev-secret-change-me"))
+	redisURL := getEnv("REDIS_URL", "redis://localhost:6379/0")
+
+	cacheTTL, err := time.ParseDuration(getEnv("TENANT_CACHE_TTL", "5s"))
+	if err != nil {
+		logger.Error("invalid TENANT_CACHE_TTL", "error", err)
+		os.Exit(1)
+	}
 
 	target, err := url.Parse(bookingServiceURL)
 	if err != nil {
 		logger.Error("invalid BOOKING_SERVICE_URL", "error", err)
 		os.Exit(1)
 	}
-	proxy := gateway.NewBookingProxy(target)
 
-	r := chi.NewRouter()
-	r.Use(gateway.RequestLogger(logger))
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Content-Type", "Authorization"},
-		AllowCredentials: false,
-	}))
+	opts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		logger.Error("invalid REDIS_URL", "error", err)
+		os.Exit(1)
+	}
+	rdb := redis.NewClient(opts)
+	defer rdb.Close()
 
-	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := startup.WaitFor(ctx, logger, "redis", func(ctx context.Context) error {
+		return rdb.Ping(ctx).Err()
+	}); err != nil {
+		logger.Error("failed to reach redis", "error", err)
+		os.Exit(1)
+	}
+
+	handler := gateway.NewRouter(gateway.Config{
+		BookingURL: target,
+		WebDir:     webDir,
+		JWTSecret:  jwtSecret,
+		Tenants:    gateway.NewTenantCache(tenant.NewStore(rdb), cacheTTL, logger),
+		Limiter:    gateway.NewRateLimiter(rdb),
+		Logger:     logger,
 	})
-
-	r.Post("/auth/dev-token", gateway.DevTokenHandler(jwtSecret, logger))
-
-	r.Route("/api", func(api chi.Router) {
-		// POST /bookings is the only write path in Phase 1, so it's the
-		// only route gated behind the JWT middleware; GETs stay public so
-		// the demo frontend can list events/bookings without a login step.
-		api.With(gateway.RequireJWT(jwtSecret)).Post("/bookings", proxy.ServeHTTP)
-		api.Handle("/*", proxy)
-	})
-
-	fileServer := http.FileServer(http.Dir(webDir))
-	r.Handle("/*", fileServer)
 
 	srv := &http.Server{
 		Addr:    ":" + port,
-		Handler: r,
+		Handler: handler,
 	}
 
+	// Hostname distinguishes replicas in logs: under compose it's the
+	// container name, so gateway-a and gateway-b lines are easy to tell apart.
+	hostname, _ := os.Hostname()
+
 	go func() {
-		logger.Info("gateway listening", "port", port, "booking_service_url", bookingServiceURL)
+		logger.Info("gateway listening",
+			"port", port,
+			"instance", hostname,
+			"booking_service_url", bookingServiceURL,
+			"tenant_cache_ttl", cacheTTL.String(),
+		)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("server error", "error", err)
 			os.Exit(1)

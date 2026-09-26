@@ -1,7 +1,7 @@
 meta {
-  name: 5 - Create Booking (Sold Out)
+  name: 6 - Create Booking (Success)
   type: http
-  seq: 5
+  seq: 6
 }
 
 post {
@@ -11,6 +11,7 @@ post {
 }
 
 headers {
+  X-API-Key: {{apiKey}}
   Authorization: Bearer {{devToken}}
 }
 
@@ -22,11 +23,10 @@ body:json {
   }
 }
 
-docs {
-  Run after "4 - Create Booking (Success)" — that request already took the
-  demo event's single seat, so this one should come back 409 Conflict.
+assert {
+  res.status: eq 201
 }
 
-assert {
-  res.status: eq 409
+script:post-response {
+  bru.setVar("bookingId", res.body.id);
 }

@@ -1,0 +1,24 @@
+meta {
+  name: 16 - Delete Low-Limit Tenant
+  type: http
+  seq: 16
+}
+
+delete {
+  url: {{controlPlaneUrl}}/tenants/{{lowTenantId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+docs {
+  Cleans up the demo tenant. Its key stops working on every gateway within
+  one cache TTL (5s): after that, /api requests with it get 401.
+}
+
+assert {
+  res.status: eq 204
+}

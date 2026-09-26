@@ -1,5 +1,28 @@
 name: torii
 
+# Both gateway replicas share this block verbatim: same image, same env.
+# JWT_SECRET in particular must match, or a token minted by one replica
+# would be rejected by the other.
+x-gateway: &gateway
+  image: torii-gateway:local
+  environment:
+    PORT: "8080"
+    BOOKING_SERVICE_URL: http://booking:8083
+    REDIS_URL: redis://redis:6379/0
+    JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    WEB_DIR: /web
+    TENANT_CACHE_TTL: 5s
+  depends_on:
+    redis:
+      condition: service_healthy
+    booking:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+    interval: 5s
+    timeout: 3s
+    retries: 5
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -26,6 +49,64 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  booking:
+    build:
+      context: .
+      args:
+        SERVICE: booking
+    environment:
+      PORT: "8083"
+      DATABASE_URL: postgres://torii:torii@postgres:5432/torii?sslmode=disable
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  controlplane:
+    build:
+      context: .
+      args:
+        SERVICE: controlplane
+    environment:
+      PORT: "8082"
+      REDIS_URL: redis://redis:6379/0
+      # The fallback only exists so `docker compose up` works out of the box
+      # locally; the binary itself has no default and k8s sets a real secret.
+      CONTROLPLANE_ADMIN_TOKEN: ${CONTROLPLANE_ADMIN_TOKEN:-dev-admin-token}
+    ports:
+      - "8082:8082"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # No load balancer in front of these on purpose: clients hit :8080 and
+  # :8081 directly. An AWS ALB takes that role in Phase 4.
+  # gateway-a builds the image; gateway-b runs that exact tag. Building it
+  # twice would give two image IDs (build metadata differs per build), so the
+  # replicas would only be "the same" by convention.
+  gateway-a:
+    <<: *gateway
+    build:
+      context: .
+      args:
+        SERVICE: gateway
+    hostname: gateway-a
+    ports:
+      - "8080:8080"
+
+  gateway-b:
+    <<: *gateway
+    pull_policy: never
+    hostname: gateway-b
+    ports:
+      - "8081:8080"
 
 volumes:
   torii_postgres_data:

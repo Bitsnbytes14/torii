@@ -1,13 +1,17 @@
 meta {
-  name: 2 - List Events
+  name: 4 - List Events
   type: http
-  seq: 2
+  seq: 4
 }
 
 get {
   url: {{baseUrl}}/api/events
   body: none
   auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
 }
 
 assert {

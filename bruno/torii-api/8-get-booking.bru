@@ -1,13 +1,17 @@
 meta {
-  name: 6 - Get Booking
+  name: 8 - Get Booking
   type: http
-  seq: 6
+  seq: 8
 }
 
 get {
   url: {{baseUrl}}/api/bookings/{{bookingId}}
   body: none
   auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
 }
 
 assert {

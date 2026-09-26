@@ -1,0 +1,23 @@
+meta {
+  name: 11 - Rate Limit via Gateway B (2 of 3)
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{gatewayB}}/api/events
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{lowApiKey}}
+}
+
+docs {
+  Second request, sent to gateway-b (:8081). X-RateLimit-Remaining should read 1: gateway-b saw gateway-a's request through the shared Redis counter.
+}
+
+assert {
+  res.status: eq 200
+}

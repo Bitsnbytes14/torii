@@ -1,0 +1,6 @@
+.git
+.env
+bruno
+bin
+*.exe
+*.test

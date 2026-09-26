@@ -1,0 +1,37 @@
+meta {
+  name: 1 - Create Tenant
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{controlPlaneUrl}}/tenants
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno Tenant",
+    "rate_limit_per_minute": 100
+  }
+}
+
+docs {
+  Every /api request after this one sends the returned key as X-API-Key.
+  The limit is generous so the booking flow (3-8) never trips it; the
+  rate-limit demo (9-16) uses its own low-limit tenant.
+}
+
+assert {
+  res.status: eq 201
+}
+
+script:post-response {
+  bru.setVar("apiKey", res.body.api_key);
+  bru.setVar("tenantId", res.body.id);
+}

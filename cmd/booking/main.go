@@ -12,15 +12,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Bitsnbytes14/torii/internal/booking"
+	"github.com/Bitsnbytes14/torii/internal/startup"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	dsn := getEnv("DATABASE_URL", "postgres://torii:torii@localhost:5432/torii?sslmode=disable")
-	port := getEnv("PORT", "8081")
+	port := getEnv("PORT", "8083")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	pool, err := pgxpool.New(ctx, dsn)
@@ -30,7 +31,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	if err := pool.Ping(ctx); err != nil {
+	if err := startup.WaitFor(ctx, logger, "postgres", pool.Ping); err != nil {
 		logger.Error("failed to reach database", "error", err)
 		os.Exit(1)
 	}

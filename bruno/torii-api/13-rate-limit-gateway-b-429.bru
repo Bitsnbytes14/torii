@@ -1,0 +1,29 @@
+meta {
+  name: 13 - Rate Limit via Gateway B (429)
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{gatewayB}}/api/events
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{lowApiKey}}
+}
+
+docs {
+  Fourth request: gateway-b has only handled one request for this tenant itself, but the tenant is over its limit, so this is 429 with a Retry-After header.
+}
+
+assert {
+  res.status: eq 429
+}
+
+tests {
+  test("sets Retry-After", function () {
+    expect(res.getHeader("retry-after")).to.be.a("string");
+  });
+}

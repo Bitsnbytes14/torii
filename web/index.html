@@ -178,6 +178,15 @@
     </header>
 
     <section>
+      <h2>Tenant</h2>
+      <div class="panel">
+        <label for="api-key">API key (sent as X-API-Key)</label>
+        <input id="api-key" type="text" placeholder="torii_… — printed by ./scripts/seed.sh" autocomplete="off" />
+        <div id="key-status" class="status"></div>
+      </div>
+    </section>
+
+    <section>
       <h2>Events</h2>
       <div id="events-grid"></div>
     </section>
@@ -213,8 +222,39 @@
     let events = [];
     let lastHolder = "";
 
+    // Remembering the key is a convenience only; storage can be unavailable
+    // (private windows, blocked site data), so every access is guarded.
+    const apiKeyInput = document.getElementById("api-key");
+    try { apiKeyInput.value = localStorage.getItem("torii.apiKey") || ""; } catch {}
+    apiKeyInput.addEventListener("change", () => {
+      try { localStorage.setItem("torii.apiKey", apiKeyInput.value.trim()); } catch {}
+      fetchEvents();
+    });
+
+    function showKeyStatus(message) {
+      const el = document.getElementById("key-status");
+      el.textContent = message;
+      el.className = message ? "status show error" : "status";
+    }
+
+    // Every /api call goes through here so the tenant key is always attached
+    // and 401/429 from the gateway surface in one place.
+    async function apiFetch(path, options = {}) {
+      const headers = { ...(options.headers || {}), "X-API-Key": apiKeyInput.value.trim() };
+      const res = await fetch(`${API}${path}`, { ...options, headers });
+      if (res.status === 401) {
+        showKeyStatus("Missing or unknown API key — paste one from ./scripts/seed.sh.");
+      } else if (res.status === 429) {
+        showKeyStatus(`Rate limited — this tenant is over its per-minute limit. Retry in ${res.headers.get("Retry-After") || "a few"}s.`);
+      } else {
+        showKeyStatus("");
+      }
+      return res;
+    }
+
     async function fetchEvents() {
-      const res = await fetch(`${API}/events`);
+      const res = await apiFetch("/events");
+      if (!res.ok) return;
       events = await res.json();
       renderEvents();
       renderEventSelect();
@@ -281,7 +321,8 @@
         empty.style.display = "block";
         return;
       }
-      const res = await fetch(`${API}/bookings?holder=${encodeURIComponent(holder)}`);
+      const res = await apiFetch(`/bookings?holder=${encodeURIComponent(holder)}`);
+      if (!res.ok) return;
       const bookings = await res.json();
       if (!bookings || bookings.length === 0) {
         list.innerHTML = "";
@@ -315,7 +356,7 @@
         if (!tokenRes.ok) throw new Error("failed to get token");
         const { token } = await tokenRes.json();
 
-        const bookingRes = await fetch(`${API}/bookings`, {
+        const bookingRes = await apiFetch("/bookings", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

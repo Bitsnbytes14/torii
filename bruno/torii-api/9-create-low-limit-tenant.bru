@@ -1,0 +1,40 @@
+meta {
+  name: 9 - Create Low-Limit Tenant
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{controlPlaneUrl}}/tenants
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno Low-Limit Tenant",
+    "rate_limit_per_minute": 3
+  }
+}
+
+docs {
+  Limit 3/min. Requests 10-13 alternate between gateway-a and gateway-b
+  with this tenant's key: the 4th is rejected even though neither gateway
+  has individually seen more than 2, because the counter lives in Redis.
+
+  Run 9-13 within the same clock minute. The fixed window resets on the
+  minute, so a run that straddles it will see 13 succeed.
+}
+
+assert {
+  res.status: eq 201
+}
+
+script:post-response {
+  bru.setVar("lowApiKey", res.body.api_key);
+  bru.setVar("lowTenantId", res.body.id);
+}

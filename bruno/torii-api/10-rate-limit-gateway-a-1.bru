@@ -1,0 +1,23 @@
+meta {
+  name: 10 - Rate Limit via Gateway A (1 of 3)
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{gatewayA}}/api/events
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{lowApiKey}}
+}
+
+docs {
+  First request for the low-limit tenant, sent to gateway-a (:8080).
+}
+
+assert {
+  res.status: eq 200
+}

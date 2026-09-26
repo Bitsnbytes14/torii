@@ -1,0 +1,32 @@
+meta {
+  name: 14 - Patch Tenant Limit (Hot Reload)
+  type: http
+  seq: 14
+}
+
+patch {
+  url: {{controlPlaneUrl}}/tenants/{{lowTenantId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+body:json {
+  {
+    "rate_limit_per_minute": 20
+  }
+}
+
+docs {
+  Raises the low-limit tenant from 3 to 20/min. Only Redis changes; no
+  gateway is restarted. Each gateway picks up the change when its tenant
+  cache entry expires (TENANT_CACHE_TTL, 5s).
+}
+
+assert {
+  res.status: eq 200
+  res.body.rate_limit_per_minute: eq 20
+}

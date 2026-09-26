@@ -1,0 +1,31 @@
+meta {
+  name: 15 - After Reload via Gateway B
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{gatewayB}}/api/events
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{lowApiKey}}
+}
+
+docs {
+  Waits 6s (one cache TTL plus margin) and then sends the same request that
+  got 429 in step 13. It now succeeds under the new limit of 20, with no
+  gateway restart. Send it right after 14 without the wait and it may still
+  429, because the gateway is serving its cached copy of the old limit.
+}
+
+script:pre-request {
+  await new Promise((resolve) => setTimeout(resolve, 6000));
+}
+
+assert {
+  res.status: eq 200
+  res.headers["x-ratelimit-limit"]: eq "20"
+}
